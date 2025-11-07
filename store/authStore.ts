@@ -10,64 +10,60 @@ interface AuthState {
   accessToken: string | null;
   refreshToken: string | null;
   isAuthenticated: boolean;
+  _hasHydrated: boolean;
   setTokens: (accessToken: string, refreshToken: string) => void;
   setAccessToken: (accessToken: string) => void;
   clearAuth: () => void;
   isTokenExpired: (token: string | null) => boolean;
   getTokenExpiration: (token: string | null) => number | null;
   validateAndRestoreSession: () => void;
+  setHasHydrated: (value: boolean) => void;
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
-      accessToken: null,
-      refreshToken: null,
-      isAuthenticated: false,
+        // Estado inicial - estos valores se sobrescribirán durante la hidratación
+        // si hay datos en localStorage
+        accessToken: null,
+        refreshToken: null,
+        isAuthenticated: false,
+        _hasHydrated: false,
+
+      setHasHydrated: (value: boolean) => {
+        set({ _hasHydrated: value });
+      },
 
       setTokens: (accessToken: string, refreshToken: string) => {
-        // Verificar que los tokens sean válidos antes de establecerlos
-        const isAccessValid = !get().isTokenExpired(accessToken);
-        const isRefreshValid = !get().isTokenExpired(refreshToken);
-        
-        if (isAccessValid || isRefreshValid) {
-          set({
-            accessToken,
-            refreshToken,
-            isAuthenticated: true,
-          });
-        } else {
-          // Si ambos tokens están expirados, limpiar
-          get().clearAuth();
-        }
+        // IMPORTANTE: NO validar tokens localmente aquí
+        // Si estos tokens vienen del backend (después de login o refresh),
+        // confiar en que el backend los validó correctamente.
+        // Solo establecer los tokens sin validación local.
+        set({
+          accessToken,
+          refreshToken,
+          isAuthenticated: true,
+        });
       },
 
       setAccessToken: (accessToken: string) => {
-        // Verificar que el token sea válido
-        const isValid = !get().isTokenExpired(accessToken);
-        
-        if (isValid) {
-          set({
-            accessToken,
-            isAuthenticated: true,
-          });
-        } else {
-          // Si el token está expirado, intentar usar refresh token
-          const { refreshToken } = get();
-          if (refreshToken && !get().isTokenExpired(refreshToken)) {
-            // El refresh token es válido, mantener la sesión
-            set({
-              accessToken,
-              isAuthenticated: true,
-            });
-          } else {
-            // Ambos tokens expirados, limpiar
-            get().clearAuth();
-          }
-        }
+        // IMPORTANTE: NO validar tokens localmente aquí
+        // Si este token viene del backend (después de refresh),
+        // confiar en que el backend lo validó correctamente.
+        // Solo establecer el token sin validación local.
+        set({
+          accessToken,
+          isAuthenticated: true,
+        });
       },
 
       clearAuth: () => {
+        // NO limpiar si el store aún no está hidratado
+        // Esto previene que se borren los tokens durante la recarga
+        const state = get();
+        if (!state._hasHydrated) {
+          return;
+        }
         set({
           accessToken: null,
           refreshToken: null,
@@ -108,26 +104,36 @@ export const useAuthStore = create<AuthState>()(
           return;
         }
 
-        // Verificar si al menos uno de los tokens es válido
-        const hasValidAccess = accessToken && !state.isTokenExpired(accessToken);
-        const hasValidRefresh = refreshToken && !state.isTokenExpired(refreshToken);
-
-        if (hasValidAccess || hasValidRefresh) {
-          // Al menos un token es válido, mantener la sesión
+        // IMPORTANTE: NO limpiar tokens aquí basándose solo en validación local
+        // Mantener los tokens y permitir que el interceptor de axios intente
+        // refrescar primero con el backend. Solo limpiar si el refresh falla.
+        
+        // Si hay tokens disponibles, marcar como autenticado
+        // El interceptor de axios se encargará de validar y refrescar si es necesario
+        if (accessToken || refreshToken) {
           set({ isAuthenticated: true });
         } else {
-          // Ambos tokens expirados, limpiar sesión
-          state.clearAuth();
+          set({ isAuthenticated: false });
         }
       },
     }),
     {
       name: AUTH_CONFIG.STORAGE_KEY,
       storage: createJSONStorage(() => localStorage),
+      // Excluir _hasHydrated de la persistencia (solo es un flag interno)
+      partialize: (state) => ({
+        accessToken: state.accessToken,
+        refreshToken: state.refreshToken,
+        isAuthenticated: state.isAuthenticated,
+      }),
       // Función que se ejecuta cuando se restaura el estado desde localStorage
-      onRehydrateStorage: () => (state, error) => {
+      onRehydrateStorage: () => (state: AuthState | undefined, error: unknown) => {
         if (error) {
           console.error('Error al restaurar la sesión desde localStorage:', error);
+          // Marcar como hidratado incluso si hay error para evitar bloqueos
+          setTimeout(() => {
+            useAuthStore.getState().setHasHydrated(true);
+          }, 0);
           return;
         }
         
@@ -135,36 +141,27 @@ export const useAuthStore = create<AuthState>()(
         if (state) {
           const { accessToken, refreshToken } = state;
           
-          // Función auxiliar para validar tokens directamente con jwtDecode
-          const isTokenExpiredHelper = (token: string | null): boolean => {
-            if (!token) return true;
-            try {
-              const decoded = jwtDecode<DecodedToken>(token);
-              const currentTime = Date.now() / 1000;
-              return decoded.exp < currentTime;
-            } catch {
-              return true;
-            }
-          };
+          // IMPORTANTE: NO limpiar tokens durante la hidratación
+          // Mantener los tokens tal como están en localStorage
+          // El interceptor de axios se encargará de validar y refrescar si es necesario
           
-          // Si hay tokens, validarlos
+          // Mutar el estado directamente (esto es válido en onRehydrateStorage)
+          // Solo actualizar isAuthenticated y _hasHydrated, NO tocar los tokens
           if (accessToken || refreshToken) {
-            const hasValidAccess = accessToken && !isTokenExpiredHelper(accessToken);
-            const hasValidRefresh = refreshToken && !isTokenExpiredHelper(refreshToken);
-            
-            if (hasValidAccess || hasValidRefresh) {
-              // Al menos un token es válido, mantener la sesión
-              state.isAuthenticated = true;
-            } else {
-              // Ambos tokens expirados, limpiar sesión
-              state.accessToken = null;
-              state.refreshToken = null;
-              state.isAuthenticated = false;
-            }
+            // Si hay tokens, mantenerlos y marcar como autenticado
+            state.isAuthenticated = true;
           } else {
             // No hay tokens, asegurarse de que isAuthenticated sea false
             state.isAuthenticated = false;
           }
+          
+          // Marcar como hidratado
+          state._hasHydrated = true;
+        } else {
+          // No hay estado, marcar como hidratado de todos modos
+          setTimeout(() => {
+            useAuthStore.getState().setHasHydrated(true);
+          }, 0);
         }
       },
     }

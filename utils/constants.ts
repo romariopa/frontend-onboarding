@@ -120,7 +120,7 @@ export const DEFAULTS = {
   },
   TOKEN_EXPIRATION: {
     ACCESS_TOKEN_MINUTES: 5,
-    REFRESH_TOKEN_HOURS: 1,
+    REFRESH_TOKEN_MINUTES: 5,
   },
 } as const;
 

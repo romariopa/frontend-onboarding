@@ -14,6 +14,7 @@ export interface RefreshTokenRequest {
 
 export interface RefreshTokenResponse {
   access_token: string;
+  refresh_token: string;
 }
 
 export interface Product {

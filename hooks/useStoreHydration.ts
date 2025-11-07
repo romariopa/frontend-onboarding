@@ -1,27 +1,22 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useAuthStore } from '@/store/authStore';
 
 /**
  * Hook que espera a que Zustand haya terminado de hidratar el estado desde localStorage
- * Esto es necesario para evitar que se verifique la autenticación antes de que se restaure el estado
+ * Usa el flag _hasHydrated del store para saber cuándo está realmente listo
  */
 export function useStoreHydration() {
+  const _hasHydrated = useAuthStore((state) => state._hasHydrated);
   const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
-    // En el cliente, esperar a que el componente se monte completamente
-    // y Zustand haya tenido tiempo de hidratar desde localStorage
-    if (typeof window !== 'undefined') {
-      // Usar requestAnimationFrame para asegurar que el DOM esté listo
-      requestAnimationFrame(() => {
-        // Pequeño delay adicional para asegurar que localStorage se haya leído
-        setTimeout(() => {
-          setIsHydrated(true);
-        }, 100);
-      });
+    // Actualizar el estado local cuando el store se haya hidratado
+    if (_hasHydrated) {
+      setIsHydrated(true);
     }
-  }, []);
+  }, [_hasHydrated]);
 
   return isHydrated;
 }

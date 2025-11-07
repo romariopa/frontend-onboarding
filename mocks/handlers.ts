@@ -24,7 +24,7 @@ export const handlers = [
     if (body.username === DEFAULTS.CREDENTIALS.USERNAME && body.password === DEFAULTS.CREDENTIALS.PASSWORD) {
       return HttpResponse.json({
         access_token: generateMockToken(DEFAULTS.TOKEN_EXPIRATION.ACCESS_TOKEN_MINUTES),
-        refresh_token: generateMockToken(DEFAULTS.TOKEN_EXPIRATION.REFRESH_TOKEN_HOURS * 60),
+        refresh_token: generateMockToken(DEFAULTS.TOKEN_EXPIRATION.REFRESH_TOKEN_MINUTES), // Mismo tiempo que access token (5 minutos)
       });
     }
 
@@ -41,6 +41,7 @@ export const handlers = [
     if (body.refresh_token) {
       return HttpResponse.json({
         access_token: generateMockToken(DEFAULTS.TOKEN_EXPIRATION.ACCESS_TOKEN_MINUTES),
+        refresh_token: generateMockToken(DEFAULTS.TOKEN_EXPIRATION.REFRESH_TOKEN_MINUTES), // Mismo tiempo que refresh token (5 minutos)
       });
     }
 

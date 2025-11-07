@@ -22,8 +22,15 @@ export function useSessionCleanup() {
       return;
     }
 
+    // Verificar si los tokens expiraron - si el refresh token expiró, cerrar sesión inmediatamente
+    const refreshExpired = refreshToken ? isTokenExpired(refreshToken) : true;
+    if (refreshExpired && refreshToken) {
+      clearAuth();
+      hasCleanedUp.current = true;
+      return;
+    }
+
     const cleanupSession = () => {
-      // Evitar limpiar múltiples veces
       if (hasCleanedUp.current) {
         return;
       }
@@ -31,10 +38,40 @@ export function useSessionCleanup() {
       clearAuth();
     };
 
+    const RELOAD_FLAG_KEY = 'guardian_is_reload_navigation';
+    let isReloading = false;
+
+    const markReload = () => {
+      try {
+        sessionStorage.setItem(RELOAD_FLAG_KEY, 'true');
+      } catch {
+        // Ignorar si sessionStorage no está disponible
+      }
+    };
+
+    const checkAndClearReloadFlag = () => {
+      try {
+        const value = sessionStorage.getItem(RELOAD_FLAG_KEY);
+        isReloading = value === 'true';
+        if (value) {
+          sessionStorage.removeItem(RELOAD_FLAG_KEY);
+        }
+      } catch {
+        isReloading = false;
+      }
+    };
+
+    checkAndClearReloadFlag();
+
     // SOLO usar pagehide para detectar cuando la página se descarta permanentemente
     // event.persisted === false significa que la página NO se está guardando en cache
     // (es decir, se está cerrando definitivamente, no recargando)
     const handlePageHide = (event: PageTransitionEvent) => {
+      // Si la navegación actual es un reload, no limpiar la sesión
+      if (isReloading) {
+        return;
+      }
+
       // Si la página se está descartando (cerrando) y NO se está persistiendo en cache
       if (event.persisted === false) {
         cleanupSession();
@@ -43,12 +80,18 @@ export function useSessionCleanup() {
       // (por ejemplo, cuando se recarga), en cuyo caso NO limpiamos la sesión
     };
 
+    const handleBeforeUnload = () => {
+      markReload();
+    };
+
     // Agregar el listener
     window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('beforeunload', handleBeforeUnload);
 
     // Cleanup
     return () => {
       window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [clearAuth, isAuthenticated, accessToken, refreshToken, isTokenExpired]);
 }
